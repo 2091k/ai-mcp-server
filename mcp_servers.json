@@ -1,0 +1,54 @@
+[
+  {
+    "name": "12306",
+    "port": 9999,
+    "config": {
+      "mcpServers": {
+        "12306-mcp": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "12306-mcp"
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "excel",
+    "port": 9999,
+    "config": {
+      "mcpServers": {
+        "excel": {
+          "args": [
+            "-y",
+            "@zhiweixu/excel-mcp-server"
+          ],
+          "command": "npx",
+          "env": {
+            "CACHE_CLEANUP_INTERVAL": "4",
+            "CACHE_MAX_AGE": "1",
+            "LOG_CLEANUP_INTERVAL": "24",
+            "LOG_PATH": "[set an accessible absolute path]",
+            "LOG_RETENTION_DAYS": "7"
+          },
+          "type": "stdio"
+        }
+      }
+    }
+  },
+  {
+    "name": "Markdown",
+    "port": 9999,
+    "config": {
+      "mcpServers": {
+        "fetch": {
+          "command": "npx",
+          "args": [
+            "mcp-fetch-server"
+          ]
+        }
+      }
+    }
+  }
+]
