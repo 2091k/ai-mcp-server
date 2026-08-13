@@ -7,9 +7,11 @@
 - Markdown
 
 ### DeepSeek++ MCP 
+```
 传输  Streamable HTTP
 服务 URL  http://localhost:9999/mcp
 结果字节  1000000
+```
 
 
 ### 添加服务器json
