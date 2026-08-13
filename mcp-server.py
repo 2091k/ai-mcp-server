@@ -1,7 +1,7 @@
 ﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MCP管理器重构版（优化版）
+MCP管理器重构版（优化版）2.0
 改动：
 1. 批量日志处理，避免 UI 卡顿
 2. 调试窗口限制最大行数（5000行）
@@ -561,7 +561,7 @@ class MCPServer:
 class MCPManagerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("MCP管理器｜DeepSeek++ | Allen")
+        self.root.title("MCP管理器｜DeepSeek++ | Allen | 2.0")
         self.root.geometry(f"{MAIN_WINDOW_WIDTH}x{MAIN_WINDOW_HEIGHT}")
         self.root.resizable(True, True)
 
