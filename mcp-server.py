@@ -1,14 +1,15 @@
 ﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MCP管理器重构版（优化版）2.0
-改动：
-1. 批量日志处理，避免 UI 卡顿
-2. 调试窗口限制最大行数（5000行）
-3. 用户滚动时暂停自动滚动，5秒后恢复
-4. 保留原有功能：自动扫描node_modules/.bin下名称含mcp的cmd文件，打印文件内容到调试窗口
-   找不到则不再降级运行原始npx全局命令，直接启动失败
-5. 修复关键点：pathlib拼接..\路径异常跳转到根目录BUG
+MCP管理器重构版（mcpgateway替换supergateway）2.2 修复版
+修复清单：
+1. 串行安装：网关 → MCP服务包依次安装
+2. 全部安装完成后自动启动服务，无需二次点击启动按钮
+3. 【重要改动】安装流程全程锁定按钮，整套流程（安装+启动）结束才释放锁
+4. 修复_installing状态锁时序错乱导致异常提示问题
+5. 安装流程异常时正确释放锁，避免永久锁定按钮
+6. 优化日志提示，区分阶段任务
+7. 防止安装过程重复触发启动逻辑
 """
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
@@ -22,6 +23,13 @@ import signal
 import re
 from pathlib import Path
 from typing import List, Optional, Tuple
+import ctypes
+import time
+
+time.sleep(0.05)
+hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+if hwnd:
+    ctypes.windll.user32.ShowWindow(hwnd, 0)
 
 # ===================== 界面参数 =====================
 DEBUG_FONT_SIZE = 11
@@ -29,8 +37,9 @@ DEBUG_FONT_NAME = "Consolas"
 DEBUG_BG_COLOR = "#161b22"
 DEBUG_FG_COLOR = "#00ff00"
 DEBUG_CURSOR_COLOR = "#58a6ff"
-MAIN_WINDOW_WIDTH = 720
-MAIN_WINDOW_HEIGHT = 700
+MAIN_WINDOW_WIDTH = 600
+MAIN_WINDOW_HEIGHT = 800
+SERVER_LIST_INIT_HEIGHT = 150
 # ====================================================
 
 CONFIG_FILE = "mcp_servers.json"
@@ -55,12 +64,16 @@ else:
     SCRIPT_EXT = ""
 
 
+def run_install_in_thread(target_func, log_callback, done_callback):
+    """后台线程执行安装，不阻塞UI"""
+    def worker():
+        result = target_func(log_callback)
+        root_tk = tk._get_default_root()
+        root_tk.after(0, lambda: done_callback(result))
+    threading.Thread(target=worker, daemon=True).start()
+
+
 def strip_pkg_version(pkg_full: str) -> str:
-    """
-    剥离包名尾部版本标签
-    @playwright/mcp@latest → @playwright/mcp
-    xlsx@0.18.5 → xlsx
-    """
     if pkg_full.startswith("@"):
         scope, namever = pkg_full.split("/", 1)
         if "@" in namever:
@@ -78,25 +91,10 @@ def get_server_work_dir(server_name: str) -> str:
 
 
 def get_gateway_bin() -> str:
-    return os.path.join(GATEWAY_DIR, "node_modules", ".bin", f"supergateway{SCRIPT_EXT}")
-
-
-def get_server_bat_path(work_dir: str) -> str:
-    return os.path.join(work_dir, "start-mcp.bat")
-
-
-def write_clean_mcp_bat(bat_path: str, js_entry: str):
-    """生成纯净单层启动脚本，直接node调用js，附带参数转发 %*"""
-    content = '@echo off\nnode "{}" %*\n'.format(js_entry)
-    with open(bat_path, "w", encoding="utf-8") as f:
-        f.write(content)
+    return os.path.join(GATEWAY_DIR, "node_modules", ".bin", f"mcpgateway{SCRIPT_EXT}")
 
 
 def scan_mcp_cmd_in_bin(bin_dir: str, log_callback) -> Optional[str]:
-    """
-    在node_modules/.bin 目录搜索文件名包含 mcp 的 .cmd 文件
-    返回第一个匹配到的文件路径，无匹配返回None
-    """
     if not os.path.isdir(bin_dir):
         log_callback(f"[扫描] 目录不存在：{bin_dir}")
         return None
@@ -120,10 +118,6 @@ def scan_mcp_cmd_in_bin(bin_dir: str, log_callback) -> Optional[str]:
 
 
 def extract_js_from_npm_cmd(cmd_file_path: str, log_callback) -> Optional[str]:
-    """
-    解析 npm 生成的 .cmd 文件，提取真实 JS 入口
-    修复：去除 rel_js 开头的 \ 或 /，避免 os.path.join 误认为绝对路径
-    """
     log_callback(f"[解析] 准备读取cmd文件路径：{cmd_file_path}")
     if not os.path.exists(cmd_file_path):
         log_callback(f"[解析] 文件不存在！")
@@ -136,40 +130,23 @@ def extract_js_from_npm_cmd(cmd_file_path: str, log_callback) -> Optional[str]:
         log_callback(f"[解析] 读取cmd失败: {str(e)}")
         return None
 
-    log_callback("=" * 60)
-    log_callback(f"[cmd原始内容开始] {cmd_file_path}")
-    log_callback(content)
-    log_callback(f"[cmd原始内容结束]")
-    log_callback("=" * 60)
-
-    bin_dir = os.path.dirname(cmd_file_path)  # 例如 D:\bt\mcp\chrome\node_modules\.bin
-    log_callback(f"[解析] .bin 目录：{bin_dir}")
-
-    # 主正则：匹配 "%dp0%xxx.js"（可能带 ..\ 或 ../
+    bin_dir = os.path.dirname(cmd_file_path)
     pat1 = re.compile(r'"%dp0%([^"]+\.(js|njs))"')
     match = pat1.search(content)
     if match:
         raw_rel = match.group(1)
-        # 去除前导的 \ 或 /（Windows 下可能是 \..\，Linux 可能是 /../）
         rel_js = raw_rel.lstrip('\\/')
-        log_callback(f"[解析] 主正则匹配到 raw_rel: {raw_rel} → 处理后: {rel_js}")
         temp_path = os.path.join(bin_dir, rel_js)
         abs_js = os.path.abspath(temp_path)
-        log_callback(f"[解析] 组合后路径：{temp_path}")
-        log_callback(f"[解析] 规范化绝对路径：{abs_js}")
         if os.path.isfile(abs_js):
             log_callback(f"[解析] ✅ JS入口有效：{abs_js}")
             return abs_js
-        else:
-            log_callback(f"[解析] ⚠️ 该路径不存在，继续尝试备用正则")
 
-    # 备用正则：匹配不带 %dp0% 的 .js 路径
     pat2 = re.compile(r'["\s]([^\s"]+\.(js|njs))["\s]')
     candidates = pat2.findall(content)
     for rel, ext in candidates:
         if rel.startswith('%dp0%'):
             continue
-        # 同样去除前导分隔符
         rel_clean = rel.lstrip('\\/')
         temp_path = os.path.join(bin_dir, rel_clean)
         abs_js = os.path.abspath(temp_path)
@@ -185,18 +162,18 @@ def install_gateway(log_callback) -> bool:
     os.makedirs(GATEWAY_DIR, exist_ok=True)
     gateway_bin = get_gateway_bin()
     if os.path.exists(gateway_bin):
-        log_callback("[网关] supergateway已存在，无需安装")
+        log_callback("[网关] mcpgateway已存在，无需安装")
         return True
 
     log_callback("[网关] ==============================================")
-    log_callback(f"[网关] 开始安装 supergateway")
+    log_callback(f"[网关] 开始安装 mcpgateway (@michlyn/mcpgateway)")
     log_callback(f"[网关] 目录：{GATEWAY_DIR}")
     log_callback("[网关] ==============================================")
     try:
         cmd = [
             NPM_CMD,
             "install",
-            "supergateway@latest",
+            "@michlyn/mcpgateway@latest",
             "--prefix", GATEWAY_DIR
         ]
         proc = subprocess.Popen(
@@ -222,10 +199,10 @@ def install_gateway(log_callback) -> bool:
         t1.join()
         t2.join()
         if ret == 0 and os.path.exists(get_gateway_bin()):
-            log_callback("[网关] ✅ supergateway 安装完成")
+            log_callback("[网关] ✅ mcpgateway 安装完成")
             return True
         else:
-            log_callback(f"[网关] ❌ supergateway 安装失败，退出码:{ret}")
+            log_callback(f"[网关] ❌ mcpgateway 安装失败，退出码:{ret}")
             return False
     except FileNotFoundError:
         log_callback("[致命错误] 未找到npm，请安装Node.js并配置环境变量！")
@@ -319,6 +296,7 @@ class MCPServer:
         self.name_label: Optional[ttk.Label] = None
         self.port_label: Optional[ttk.Label] = None
         self.work_dir = get_server_work_dir(self.name)
+        self._installing = False
 
     def to_dict(self) -> dict:
         return {"name": self.name, "port": self.port, "config": self.config}
@@ -336,59 +314,125 @@ class MCPServer:
 
     def build_gateway_command(self, stdio_exec_path: str) -> list:
         gateway_exe = get_gateway_bin()
+        if sys.platform == "win32":
+            # Windows 使用双引号包裹整条子进程命令，防止参数被mcpgateway截断
+            wrapped_cmd = f'"{stdio_exec_path}"'
+        else:
+            wrapped_cmd = stdio_exec_path
         return [
             gateway_exe,
             "--stdio", stdio_exec_path,
-            "--outputTransport", "streamableHttp",
-            "--port", str(self.port)
+            "--outputTransport", "streamable-http",
+            "--port", str(self.port),
         ]
 
     def start(self, log_callback):
         if self.running:
             log_callback(f"[{self.name}] 服务器已经在运行中")
             return False
+        if self._installing:
+            log_callback(f"[{self.name}] 正在执行依赖安装流程，请等待完成，请勿重复点击！")
+            return False
 
-        if not os.path.exists(get_gateway_bin()):
-            log_callback(f"[{self.name}] 网关未安装，开始自动安装...")
-            ok = install_gateway(log_callback)
-            if not ok:
-                log_callback(f"[{self.name}] supergateway准备失败，无法启动")
-                return False
+        # 锁定状态
+        self._installing = True
+        # 界面按钮临时禁用，防止重复点击
+        if self.toggle_btn:
+            self.toggle_btn.config(state=tk.DISABLED, text="安装中...")
 
+        # ========== 链式串行安装流水线 ==========
+        def pipeline_install():
+            try:
+                # 阶段1：安装网关
+                log_callback(f"[{self.name}] 阶段1：检查并安装 mcpgateway")
+                gw_ok = install_gateway(log_callback)
+                if not gw_ok:
+                    log_callback(f"[{self.name}] ❌ 网关安装失败，流程终止")
+                    return
+
+                # 阶段2：检查MCP包，需要安装则执行
+                mcp_cfg = self.get_raw_mcp_config()
+                is_npx, pkg_name = extract_npx_package(mcp_cfg)
+                if is_npx and pkg_name is not None:
+                    bin_dir = os.path.join(self.work_dir, "node_modules", ".bin")
+                    target_cmd = scan_mcp_cmd_in_bin(bin_dir, log_callback)
+                    if target_cmd is None:
+                        log_callback(f"[{self.name}] 阶段2：本地未找到 {pkg_name}，开始安装")
+                        pkg_ok = install_mcp_to_workdir(self.work_dir, pkg_name, log_callback)
+                        if not pkg_ok:
+                            log_callback(f"[{self.name}] ❌ {pkg_name} 安装失败，流程终止")
+                            return
+
+                # 全部安装任务完成，自动启动
+                log_callback(f"[{self.name}] ✅ 所有依赖准备就绪，自动启动服务...")
+                self._do_real_start(log_callback)
+            finally:
+                # 【关键改动】整套流程（安装+启动）全部结束后才释放锁、恢复按钮
+                def unlock_ui():
+                    self._installing = False
+                    self._update_ui_state()
+                if self.ui_frame:
+                    self.ui_frame.after(0, unlock_ui)
+
+        # 入口：启动安装流水线
+        gateway_bin = get_gateway_bin()
+        mcp_cfg = self.get_raw_mcp_config()
+        is_npx, pkg_name = extract_npx_package(mcp_cfg)
+        need_install = False
+        if not os.path.exists(gateway_bin):
+            need_install = True
+        if is_npx and pkg_name is not None:
+            bin_dir = os.path.join(self.work_dir, "node_modules", ".bin")
+            if scan_mcp_cmd_in_bin(bin_dir, log_callback) is None:
+                need_install = True
+
+        if need_install:
+            log_callback(f"[{self.name}] ⏳ 检测缺失依赖，启动完整安装流水线（网关→MCP包），完成后自动启动")
+            run_install_in_thread(lambda cb: pipeline_install(), log_callback, lambda res: None)
+            return False
+        else:
+            # 无需安装，直接启动，不经过安装流程
+            self._installing = False
+            return self._do_real_start(log_callback)
+
+    def _do_real_start(self, log_callback):
+        """真正执行启动逻辑"""
         mcp_cfg = self.get_raw_mcp_config()
         is_npx, pkg_name = extract_npx_package(mcp_cfg)
         stdio_exec_path = ""
 
         if is_npx and pkg_name is not None:
             bin_dir = os.path.join(self.work_dir, "node_modules", ".bin")
-            # 自动扫描包含mcp的cmd，不再硬编码包名拼接
             target_cmd = scan_mcp_cmd_in_bin(bin_dir, log_callback)
-
-            if target_cmd is None:
-                log_callback(f"[{self.name}] .bin目录未找到mcp相关cmd，开始安装包 {pkg_name}")
-                ok = install_mcp_to_workdir(self.work_dir, pkg_name, log_callback)
-                if not ok:
-                    log_callback(f"[{self.name}] {pkg_name} 安装失败，无法启动")
-                    return False
-                # 安装完成再次扫描
-                target_cmd = scan_mcp_cmd_in_bin(bin_dir, log_callback)
-
             if target_cmd and os.path.exists(target_cmd):
                 entry_js = extract_js_from_npm_cmd(target_cmd, log_callback)
                 if entry_js and os.path.exists(entry_js):
                     log_callback(f"[{self.name}] ✅ 找到JS入口：{entry_js}")
-                    bat_path = get_server_bat_path(self.work_dir)
-                    write_clean_mcp_bat(bat_path, entry_js)
-                    stdio_exec_path = bat_path
-                    log_callback(f"[{self.name}] 生成启动脚本: {bat_path}")
+                    # 读取原始配置参数
+                    mcp_cfg = self.get_raw_mcp_config()
+                    args_raw = mcp_cfg.get("args", [])
+                    # 截取包名后面所有运行参数
+                    arg_index = 1
+                    if len(args_raw) > 0 and args_raw[0] == "-y":
+                        arg_index = 2
+                    tail_args = args_raw[arg_index:]
+                    # 拼装命令，处理带空格参数引号
+                    cmd_parts = ["node", entry_js] + tail_args
+                    quoted_parts = []
+                    for part in cmd_parts:
+                        if " " in part:
+                            quoted_parts.append(f'"{part}"')
+                        else:
+                            quoted_parts.append(part)
+                    stdio_exec_path = " ".join(quoted_parts)
+                    log_callback(f"[{self.name}] 直接调用node启动：{stdio_exec_path}")
                 else:
-                    log_callback(f"[{self.name}] ❌ 解析JS入口失败，不支持直接调用cmd，启动终止")
+                    log_callback(f"[{self.name}] ❌ 解析JS入口失败，启动终止")
                     return False
             else:
-                log_callback(f"[{self.name}] ❌ 本地目录未找到mcp cmd文件，取消全局npx降级，启动终止")
+                log_callback(f"[{self.name}] ❌ 本地目录未找到mcp cmd文件，启动终止")
                 return False
         else:
-            # 非npx原生命令保持原有逻辑不变
             cmd = mcp_cfg.get("command", "")
             args = mcp_cfg.get("args", [])
             quoted = []
@@ -474,7 +518,10 @@ class MCPServer:
         try:
             for line in iter(pipe.readline, ''):
                 if line:
-                    log_callback(f"[{self.name}] {line.rstrip()}")
+                    line_strip = line.rstrip()
+                    if "[mcpgateway]" in line_strip and "No pending request" in line_strip:
+                        continue
+                    log_callback(f"[{self.name}] {line_strip}")
         except Exception as e:
             log_callback(f"[{self.name}] 读取 {stream_type} 出错: {e}")
         finally:
@@ -504,10 +551,15 @@ class MCPServer:
             else:
                 self.status_label.config(text="○ 已停止", foreground="red")
         if self.toggle_btn:
-            if self.running:
-                self.toggle_btn.config(text="停止", bg="#ff6b6b")
+            # 安装锁定期间强制禁用按钮
+            if self._installing:
+                self.toggle_btn.config(state=tk.DISABLED, text="安装中...")
             else:
-                self.toggle_btn.config(text="启动", bg="#51cf66")
+                self.toggle_btn.config(state=tk.NORMAL)
+                if self.running:
+                    self.toggle_btn.config(text="停止", bg="#ff6b6b")
+                else:
+                    self.toggle_btn.config(text="启动", bg="#51cf66")
 
     def stop(self, log_callback):
         if not self.running:
@@ -561,7 +613,7 @@ class MCPServer:
 class MCPManagerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("MCP管理器｜DeepSeek++ | Allen | 2.0")
+        self.root.title("MCP管理器｜DeepSeek++ | Allen | 2.2 (mcpgateway)")
         self.root.geometry(f"{MAIN_WINDOW_WIDTH}x{MAIN_WINDOW_HEIGHT}")
         self.root.resizable(True, True)
 
@@ -571,14 +623,15 @@ class MCPManagerApp:
         self._load_servers()
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
-        # ---------- 优化相关属性 ----------
-        self._max_log_lines = 5000          # 最大行数
-        self._user_scrolled = False         # 用户是否手动滚动了
-        # 绑定滚动条事件
+        self._max_log_lines = 5000
+        self._user_scrolled = False
         self.debug_text.vbar.bind("<ButtonPress-1>", self._on_user_scroll)
         self.debug_text.vbar.bind("<ButtonRelease-1>", self._on_user_scroll_release)
-        # 启动日志处理循环（每50ms）
         self.root.after(50, self._process_log_queue)
+
+        def set_sash():
+            self.vert_sash.sashpos(0, SERVER_LIST_INIT_HEIGHT)
+        self.root.after(120, set_sash)
 
     def _create_widgets(self):
         main_frame = ttk.Frame(self.root, padding="6")
@@ -598,11 +651,11 @@ class MCPManagerApp:
         )
         add_btn.pack(side=tk.RIGHT)
 
-        vert_sash = ttk.PanedWindow(main_frame, orient=tk.VERTICAL)
-        vert_sash.pack(fill=tk.BOTH, expand=True)
+        self.vert_sash = ttk.PanedWindow(main_frame, orient=tk.VERTICAL)
+        self.vert_sash.pack(fill=tk.BOTH, expand=True)
 
-        list_frame = ttk.LabelFrame(vert_sash, text="服务器列表", padding="4")
-        vert_sash.add(list_frame, weight=3)
+        list_frame = ttk.LabelFrame(self.vert_sash, text="服务器列表", padding="4")
+        self.vert_sash.add(list_frame, weight=3)
 
         self.list_canvas = tk.Canvas(list_frame, highlightthickness=0)
         self.list_scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.list_canvas.yview)
@@ -633,8 +686,8 @@ class MCPManagerApp:
         self.server_entries_frame = ttk.Frame(self.list_inner)
         self.server_entries_frame.pack(fill=tk.X)
 
-        debug_frame = ttk.LabelFrame(vert_sash, text="调试输出", padding="4")
-        vert_sash.add(debug_frame, weight=2)
+        debug_frame = ttk.LabelFrame(self.vert_sash, text="调试输出", padding="4")
+        self.vert_sash.add(debug_frame, weight=2)
 
         self.debug_text = scrolledtext.ScrolledText(
             debug_frame, wrap=tk.WORD,
@@ -643,7 +696,7 @@ class MCPManagerApp:
         )
         self.debug_text.pack(fill=tk.BOTH, expand=True)
         self.debug_text.config(state=tk.NORMAL)
-        self.debug_text.insert(tk.END, "> 自动扫描node_modules/.bin内名称含mcp的cmd文件\n> 自动打印cmd完整源码到调试窗口\n> 作者:Allen 项目地址：https://github.com/2091k/ai-mcp-server\n> 首次启动对应服务会安装程序，请等待\n")
+        self.debug_text.insert(tk.END, "> mcpgateway 桥接模式｜2.2修复版\n> 安装全程锁定启动按钮，整套流程结束才释放\n> 串行安装：网关优先 → MCP服务包 → 自动启动\n> 作者:Allen\n")
         self.debug_text.config(state=tk.DISABLED)
         self.debug_text.see(tk.END)
 
@@ -903,9 +956,7 @@ class MCPManagerApp:
     def _log(self, message: str):
         log_queue.put(message)
 
-    # ---------- 优化后的日志处理 ----------
     def _process_log_queue(self):
-        # 批量取出所有消息
         messages = []
         try:
             while True:
@@ -916,29 +967,24 @@ class MCPManagerApp:
 
         if messages:
             self.debug_text.config(state=tk.NORMAL)
-            # 一次性插入
             text_to_insert = "".join(msg + "\n" for msg in messages)
             self.debug_text.insert(tk.END, text_to_insert)
 
-            # 限制最大行数
             line_count = int(self.debug_text.index('end-1c').split('.')[0])
             if line_count > self._max_log_lines:
                 del_lines = line_count - self._max_log_lines
                 self.debug_text.delete('1.0', f'{del_lines+1}.0')
 
             self.debug_text.config(state=tk.DISABLED)
-            # 仅在用户未滚动时自动滚动
             if not self._user_scrolled:
                 self.debug_text.see(tk.END)
 
-        # 继续调度
         self.root.after(50, self._process_log_queue)
 
     def _on_user_scroll(self, event):
         self._user_scrolled = True
 
     def _on_user_scroll_release(self, event):
-        # 5秒后恢复自动滚动
         self.root.after(5000, lambda: setattr(self, '_user_scrolled', False))
 
     def _on_closing(self):
