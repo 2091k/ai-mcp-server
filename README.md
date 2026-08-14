@@ -9,7 +9,7 @@
 ### 默认添加了
 - 12306
 - excel
-- Markdown
+- ssh
 
 ### DeepSeek++ MCP 
 ```
