@@ -20,6 +20,8 @@
 
 
 ### 添加服务器json
+
+- 12306
 ```
 {
   "mcpServers": {
@@ -33,4 +35,98 @@
   }
 }
 ```
+- excel文件操作
 
+```
+{
+  "mcpServers": {
+    "excel": {
+      "args": [
+        "-y",
+        "@zhiweixu/excel-mcp-server"
+      ],
+      "command": "npx",
+      "env": {
+        "CACHE_CLEANUP_INTERVAL": "4",
+        "CACHE_MAX_AGE": "1",
+        "LOG_CLEANUP_INTERVAL": "24",
+        "LOG_PATH": "[set an accessible absolute path]",
+        "LOG_RETENTION_DAYS": "7"
+      },
+      "type": "stdio"
+    }
+  }
+}
+```
+
+- ssh 连接到你的SSH
+
+```
+{
+  "mcpServers": {
+    "ssh-mcp-server": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@fangjunjie/ssh-mcp-server",
+        "--host",
+        "192.168.1.20",
+        "--port",
+        "22",
+        "--username",
+        "root",
+        "--password",
+        "你的密码"
+      ]
+    }
+  }
+}
+```
+- amap 高德地图mcp
+
+```
+{
+  "mcpServers": {
+    "amap-maps": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@amap/amap-maps-mcp-server"
+      ],
+      "env": {
+        "AMAP_MAPS_API_KEY": "你的key"
+      }
+    }
+  }
+}
+```
+
+- Chrome-MCP-Server-Portable 浏览器， 安装好后json改成路径格式
+
+1.
+```
+{
+  "mcpServers": {
+    "12306-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-chrome-bridge"
+      ]
+    }
+  }
+}
+```
+2.
+```
+{
+  "mcpServers": {
+    "chrome-mcp-stdio": {
+      "command": "node",
+      "args": [
+        "D:\\bt\\x86\\deepseek++\\mcp\\chromemcp\\node_modules\\mcp-chrome-bridge\\dist\\mcp\\mcp-server-stdio.js"
+      ]
+    }
+  }
+}
+```
