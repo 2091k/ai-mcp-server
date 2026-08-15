@@ -16,7 +16,7 @@
     "manual_cmd": null
   },
   {
-    "name": "DeepSeek DSH",
+    "name": "DeepSeek_DSH",
     "port": 9999,
     "config": {
       "mcpServers": {
