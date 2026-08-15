@@ -12,7 +12,25 @@
           ]
         }
       }
-    }
+    },
+    "manual_cmd": null
+  },
+  {
+    "name": "DeepSeek DSH",
+    "port": 9999,
+    "config": {
+      "mcpServers": {
+        "demo-mcp": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@deepseek-ai/dsh",
+            "web"
+          ]
+        }
+      }
+    },
+    "manual_cmd": null
   },
   {
     "name": "excel",
@@ -29,26 +47,70 @@
             "CACHE_CLEANUP_INTERVAL": "4",
             "CACHE_MAX_AGE": "1",
             "LOG_CLEANUP_INTERVAL": "24",
-            "LOG_PATH": "[set an accessible absolute path]",
             "LOG_RETENTION_DAYS": "7"
           },
           "type": "stdio"
         }
       }
-    }
+    },
+    "manual_cmd": null
   },
   {
-    "name": "Markdown",
+    "name": "ssh",
     "port": 9999,
     "config": {
       "mcpServers": {
-        "fetch": {
+        "ssh-mcp-server": {
           "command": "npx",
           "args": [
-            "mcp-fetch-server"
+            "-y",
+            "@fangjunjie/ssh-mcp-server",
+            "--host",
+            "192.168.1.110",
+            "--port",
+            "22",
+            "--username",
+            "root",
+            "--password",
+            "你的密码"
           ]
         }
       }
-    }
+    },
+    "manual_cmd": null
+  },
+  {
+    "name": "amap",
+    "port": 9999,
+    "config": {
+      "mcpServers": {
+        "amap-maps": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@amap/amap-maps-mcp-server"
+          ],
+          "env": {
+            "AMAP_MAPS_API_KEY": "你的key"
+          }
+        }
+      }
+    },
+    "manual_cmd": null
+  },
+  {
+    "name": "chromemcp",
+    "port": 9999,
+    "config": {
+      "mcpServers": {
+        "chrome-mcp-stdio": {
+          "command": "node",
+          "args": [
+            "D:\\bt\\x86\\deepseek++\\mcp\\chromemcp\\node_modules\\mcp-chrome-bridge\\dist\\mcp\\mcp-server-stdio.js"
+          ]
+        }
+      }
+    },
+    "manual_cmd": null
   }
 ]
