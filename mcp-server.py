@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MCP管理器 Flet 版（mcpgateway 替换 supergateway）2.3 深色优化版
-（由 tkinter 版迁移而来，功能与操作保持一致）
+MCP管理器 Flet 版（mcpgateway / supergateway 双网关切换）2.4 深色优化版
+（基于 2.3 版 mcp-server.py 修改；mcp-server-mod.py 仅作界面参考）
 
-功能说明：
+新增功能：
+1. 左侧切换面板：可选择 mcpgateway 或 supergateway
+2. 网关作为模块级变量（CURRENT_GATEWAY），启动/安装时按当前选择使用对应网关
+3. "清除日志"按钮位于左侧面板底部（工具栏已不重复放置）
+4. 深色主题，与 2.3 版保持一致风格
+5. 自定义暗色标题栏：隐藏系统白色标题栏，可拖动移动，带最小化/最大化/关闭按钮
+6. 服务器列表列宽随窗口宽度自适应：端口/状态/操作紧挨对齐，不贴最右
+7. 按钮使用柔和主题色，与深色界面一致
+
+原有功能：
 1. 串行安装：网关 → MCP服务包依次安装，全部完成后自动启动服务
 2. 安装流程全程锁定启动按钮，整套流程（安装+启动）结束才释放
 3. 深色主题界面；全部可调参数集中在文件顶部，方便修改
@@ -15,7 +24,7 @@ MCP管理器 Flet 版（mcpgateway 替换 supergateway）2.3 深色优化版
 8. 环境变量 MCP_HEADLESS=1 时以隐藏窗口启动（用于无人值守/调试）
 9. 安装依赖时，调试输出面板顶部按程序逐行显示实时进度：百分比 + 真实下载包体大小 + 已下载依赖包数(x/y)，安装结束自动隐藏；npm 内部 http 日志(cache/fetch)不刷调试窗口
 10. 启动入口解析升级：优先读包内 package.json 的 bin 字段（支持任意 bin 名，不再依赖文件名含"mcp"），失败自动退回 .bin 目录扫描；可手动指定启动命令/JS入口
-11. 启动加速：用普通类替换 Flet 0.25 巨慢的图标 Enum（实测 import flet 从 13 秒降到 1.5 秒），窗口秒开；工具栏新增"清除日志"按钮
+11. 启动加速：用普通类替换 Flet 0.25 巨慢的图标 Enum（实测 import flet 从 13 秒降到 1.5 秒），窗口秒开；左侧面板提供"清除日志"按钮
 
 运行依赖：Python 3.8+，Flet 0.25+
     pip install flet
@@ -101,13 +110,17 @@ import flet as ft
 # =====================================================================
 
 # ---------- 窗口大小 ----------
-MAIN_WINDOW_WIDTH = 600          # 窗口初始宽度（像素）
-MAIN_WINDOW_HEIGHT = 880         # 窗口初始高度（像素）
-MAIN_WINDOW_MIN_WIDTH = 620      # 窗口最小宽度
+MAIN_WINDOW_WIDTH = 1000          # 窗口初始宽度（像素）— 加宽以容纳左侧网关切换面板
+MAIN_WINDOW_HEIGHT = 700         # 窗口初始高度（像素）
+MAIN_WINDOW_MIN_WIDTH = 780      # 窗口最小宽度
 MAIN_WINDOW_MIN_HEIGHT = 520     # 窗口最小高度
 
+# ---------- 左侧网关切换面板 ----------
+SIDEBAR_WIDTH = 168              # 左侧切换面板宽度（像素）
+SIDEBAR_MIN_WIDTH = 120          # 左侧切换面板最小宽度
+
 # ---------- 服务器列表高度（可拖动中间分隔条手动调整） ----------
-SERVER_LIST_INIT_HEIGHT = 165    # 服务器列表初始高度（像素）
+SERVER_LIST_INIT_HEIGHT = 260    # 服务器列表初始高度（像素）
 SERVER_LIST_MIN_HEIGHT = 120     # 拖动分隔条时列表最小高度
 SERVER_LIST_MAX_HEIGHT = 520     # 拖动分隔条时列表最大高度
 
@@ -125,12 +138,16 @@ COLOR_TEXT           = "#e6edf3"  # 普通文字颜色
 COLOR_TEXT_DIM       = "#8b949e"  # 次要文字颜色（表头 / 提示）
 COLOR_SPLITTER       = "#323842"  # 分隔条颜色
 
-COLOR_BTN_ADD     = "#2ea043"  # "＋添加"按钮
-COLOR_BTN_START   = "#238636"  # "启动"按钮
-COLOR_BTN_STOP    = "#da3633"  # "停止"按钮
-COLOR_BTN_EDIT    = "#b88700"  # "编辑"按钮
-COLOR_BTN_DELETE  = "#da3633"  # "删除"按钮
-COLOR_BTN_TEXT    = "#ffffff"  # 按钮文字颜色
+COLOR_BTN_ADD     = "#2f6b49"  # "＋添加"按钮（柔和绿，与深色主题一致）
+COLOR_BTN_START   = "#2f6b49"  # "启动"按钮（柔和绿）
+COLOR_BTN_STOP    = "#8a3a3a"  # "停止"按钮（柔和红）
+COLOR_BTN_EDIT    = "#7d6416"  # "编辑"按钮（柔和黄）
+COLOR_BTN_DELETE  = "#8a3a3a"  # "删除"按钮（柔和红）
+COLOR_BTN_TEXT    = "#e6edf3"  # 按钮文字颜色（主题文字色）
+
+COLOR_SIDEBAR_BG      = "#1a1e24"  # 左侧网关面板背景
+COLOR_SIDEBAR_ACTIVE  = "#2f6b49"  # 选中网关高亮色（与启动按钮同色系，柔和）
+COLOR_SIDEBAR_HOVER   = "#2d333b"  # 网关按钮悬停背景
 
 # ---------- 字体 ----------
 FONT_FAMILY       = "Microsoft YaHei UI"  # 界面默认字体（中文）
@@ -145,17 +162,25 @@ FONT_SIZE_BUTTON        = 13   # 所有按钮文字
 FONT_SIZE_LOG           = 15   # 调试日志文字
 FONT_SIZE_DIALOG        = 13   # 弹窗正文文字
 FONT_SIZE_DIALOG_TITLE  = 16   # 弹窗标题文字
+FONT_SIZE_SIDEBAR       = 14   # 左侧面板网关名称文字
+FONT_SIZE_GATEWAY_NAME  = 12   # 左侧面板"当前网关"/网关说明小字
 
-# ---------- 列表列宽（与行内容保持一致，改这里即可） ----------
-COL_NAME_WIDTH   = 130   # "名称"列宽
-COL_PORT_WIDTH   = 64    # "端口"列宽
-COL_STATUS_WIDTH = 92    # "状态"列宽
-BTN_WIDTH        = 72    # 每个操作按钮宽度（启动/编辑/删除一致）
+# ---------- 列表列宽（名称列随窗口宽度自适应；端口/状态/操作紧挨对齐，不贴最右） ----------
+COL_NAME_WIDTH   = 130   # "名称"列宽（保留，实际宽度由 NAME_COL_WIDTH 自适应逻辑决定）
+COL_PORT_WIDTH   = 64    # "端口"列宽（固定）
+COL_STATUS_WIDTH = 92    # "状态"列宽（固定）
+BTN_WIDTH        = 64    # 每个操作按钮宽度（启动/编辑/删除一致；偏小便于窄窗口放下）
 BTN_HEIGHT       = 36    # 每个操作按钮高度
+BTN_GAP          = 4     # 操作按钮间距
 ROW_SPACING      = 8     # 行内控件间距
+ACTIONS_COL_WIDTH = BTN_WIDTH * 3 + BTN_GAP * 2    # "操作"列总宽（与三个按钮对齐）
+FIXED_COLS_WIDTH  = (COL_PORT_WIDTH + COL_STATUS_WIDTH + ACTIONS_COL_WIDTH
+                     + ROW_SPACING * 3)            # 端口+状态+操作+间距 固定总宽
+NAME_COL_WIDTH     = 240   # "名称"列基准宽度（窗口够宽时保持固定；过窄时自动压缩）
+NAME_COL_MIN_WIDTH = 80    # "名称"列最小宽度（再窄则省略号截断）
 
 # ---------- 日志 ----------
-MAX_LOG_LINES        = 6000   # 日志最大行数，超出自动丢弃最旧行（防内存暴涨）
+MAX_LOG_LINES        = 3000   # 日志最大行数，超出自动丢弃最旧行（防内存暴涨）
 LOG_FLUSH_INTERVAL   = 0.05   # 日志刷新间隔（秒），批量合并，避免高频刷新卡顿
 LOG_STICK_BOTTOM     = True   # 是否自动滚动日志到底部（True=自动，False=不自动）
 LOG_SCROLL_TOLERANCE = 40.0   # 判断"回到底部"的容差（像素），越小越严格
@@ -170,6 +195,45 @@ PROGRESS_BAR_HEIGHT = 6            # 进度条高度（像素）
 PROGRESS_BAR_COLOR  = "#2ea043"    # 进度条前景色（绿色）
 PROGRESS_BAR_TRACK  = "#323842"    # 进度条轨道颜色
 PROGRESS_HIDE_DELAY = 1.5          # 安装完成/失败后进度条停留秒数，再自动隐藏
+
+# =====================================================================
+#                      网关配置（可扩展，按需增删）
+# ---------------------------------------------------------------------
+# 左侧面板可切换 mcpgateway / supergateway，实际使用哪一个网关由
+# 当前选中的网关决定（模块级变量 CURRENT_GATEWAY["key"]）。
+# 新增网关：在此添加一条配置即可，安装/启动逻辑自动生效。
+# =====================================================================
+GATEWAY_CONFIGS = {
+    "mcpgateway": {
+        "display_name": "MCP Gateway",
+        "package": "@michlyn/mcpgateway",   # npm 包名（用于安装）
+        "bin": "mcpgateway",                # node_modules/.bin 下命令名（用于启动）
+        "description": "MCP 网关 (Node.js)",
+    },
+    "supergateway": {
+        "display_name": "Super Gateway",
+        "package": "supergateway",          # npm 包名（用于安装）
+        "bin": "supergateway",              # node_modules/.bin 下命令名（用于启动）
+        "description": "Super Gateway (Node.js)",
+    },
+}
+
+DEFAULT_GATEWAY = "mcpgateway"   # 默认网关
+CURRENT_GATEWAY = {"key": DEFAULT_GATEWAY}  # 当前选中的网关（模块级变量）
+
+
+def current_gateway_key() -> str:
+    """当前选中的网关 key（模块级变量，供安装/启动流程读取）"""
+    key = CURRENT_GATEWAY.get("key", DEFAULT_GATEWAY)
+    if key not in GATEWAY_CONFIGS:
+        key = DEFAULT_GATEWAY
+    return key
+
+
+def set_current_gateway(key: str):
+    """切换当前网关（由左侧面板调用）"""
+    if key in GATEWAY_CONFIGS:
+        CURRENT_GATEWAY["key"] = key
 
 # =====================================================================
 #                      （以下一般无需修改）
@@ -280,9 +344,9 @@ def _no_window_flags() -> int:
     """Windows 下让子进程在后台运行、不弹 cmd 窗口。
 
     GUI 子系统 exe（--windowed）派生控制台子进程（npm.cmd / mcpgateway.cmd /
-    taskkill 等）时，Windows 默认会新建一个可见的 cmd 窗口；用户一旦关掉该窗口，
-    整个进程树会被终止。加 CREATE_NO_WINDOW 标志即可彻底避免弹窗。
-    非 Windows 平台返回 0（无此概念）。
+    supergateway.cmd / taskkill 等）时，Windows 默认会新建一个可见的 cmd 窗口；
+    用户一旦关掉该窗口，整个进程树会被终止。加 CREATE_NO_WINDOW 标志即可彻底
+    避免弹窗。非 Windows 平台返回 0（无此概念）。
     """
     if sys.platform == "win32":
         return getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -316,8 +380,11 @@ def get_server_work_dir(server_name: str) -> str:
     return os.path.join(BASE_DIR, server_name)
 
 
-def get_gateway_bin() -> str:
-    return os.path.join(GATEWAY_DIR, "node_modules", ".bin", f"mcpgateway{SCRIPT_EXT}")
+def get_gateway_bin(gateway_key: Optional[str] = None) -> str:
+    """按网关类型返回 gateway/node_modules/.bin 下的可执行文件路径"""
+    key = gateway_key or current_gateway_key()
+    bin_name = GATEWAY_CONFIGS.get(key, GATEWAY_CONFIGS[DEFAULT_GATEWAY])["bin"]
+    return os.path.join(GATEWAY_DIR, "node_modules", ".bin", f"{bin_name}{SCRIPT_EXT}")
 
 
 def scan_mcp_cmd_in_bin(bin_dir: str, log_callback) -> Optional[str]:
@@ -646,33 +713,36 @@ def _npm_install_progress(pkg_name: str, work_dir: str, row_id: str,
         return False
 
 
-def install_gateway(log_callback) -> bool:
+def install_gateway(log_callback, gateway_key: Optional[str] = None) -> bool:
+    """安装当前选中的网关（mcpgateway / supergateway），已安装则跳过"""
+    key = gateway_key or current_gateway_key()
+    cfg = GATEWAY_CONFIGS.get(key, GATEWAY_CONFIGS[DEFAULT_GATEWAY])
+    pkg_name = cfg["package"]
+    display = cfg["display_name"]
     os.makedirs(GATEWAY_DIR, exist_ok=True)
-    gateway_bin = get_gateway_bin()
+    gateway_bin = get_gateway_bin(key)
     if os.path.exists(gateway_bin):
-        log_callback("[网关] mcpgateway已存在，无需安装")
-        _progress_set("gateway", "✅ 网关 mcpgateway 已存在，跳过安装", 1.0, "100%")
+        log_callback(f"[网关] {display} 已存在，无需安装")
+        _progress_set("gateway", f"✅ 网关 {display} 已存在，跳过安装", 1.0, "100%")
         return True
 
     log_callback("[网关] ==============================================")
-    log_callback("[网关] 开始安装 mcpgateway (@michlyn/mcpgateway)")
+    log_callback(f"[网关] 开始安装 {display}（{pkg_name}）")
     log_callback(f"[网关] 目录：{GATEWAY_DIR}")
     log_callback("[网关] ==============================================")
-    size_str = format_size(query_package_size("@michlyn/mcpgateway"))
-    row_title = "网关 mcpgateway" + (f" ｜ 下载包体" if size_str else "")
+    size_str = format_size(query_package_size(pkg_name))
+    row_title = f"网关 {display}" + (" ｜ 下载包体" if size_str else "")
     _progress_set("gateway", f"{row_title} ｜ 正在解析依赖 ...", None)
     try:
-        ok = _npm_install_progress(
-            "@michlyn/mcpgateway@latest", GATEWAY_DIR, "gateway", row_title, log_callback,
-        )
-        if ok and os.path.exists(get_gateway_bin()):
-            log_callback("[网关] ✅ mcpgateway 安装完成")
-            _progress_set("gateway", f"✅ 网关 mcpgateway 安装完成（下载包体）"
-                          if size_str else "✅ 网关 mcpgateway 安装完成",
+        ok = _npm_install_progress(f"{pkg_name}@latest", GATEWAY_DIR, "gateway", row_title, log_callback)
+        if ok and os.path.exists(get_gateway_bin(key)):
+            log_callback(f"[网关] ✅ {display} 安装完成")
+            _progress_set("gateway", f"✅ 网关 {display} 安装完成（下载包体）"
+                          if size_str else f"✅ 网关 {display} 安装完成",
                           1.0, "100%")
             return True
-        log_callback("[网关] ❌ mcpgateway 安装失败")
-        _progress_set("gateway", "❌ 网关 mcpgateway 安装失败", 0.0, "失败")
+        log_callback(f"[网关] ❌ {display} 安装失败")
+        _progress_set("gateway", f"❌ 网关 {display} 安装失败", 0.0, "失败")
         return False
     except FileNotFoundError:
         log_callback("[致命错误] 未找到npm，请安装Node.js并配置环境变量！")
@@ -767,12 +837,33 @@ class MCPServer:
             return mcp_servers[first_key]
         return self.config
 
-    def build_gateway_command(self, stdio_exec_path: str) -> list:
-        gateway_exe = get_gateway_bin()
-        if sys.platform == "win32":
-            wrapped_cmd = f'"{stdio_exec_path}"'
-        else:
-            wrapped_cmd = stdio_exec_path
+    def build_gateway_command(self, stdio_exec_path: str,
+                              gateway_key: Optional[str] = None) -> list:
+        """按网关类型构建启动命令（使用哪一个由 gateway_key 决定）。
+
+        mcpgateway   : --stdio <入口> --outputTransport streamable-http --port <端口>
+                       → streamable-http 地址: http://localhost:<端口>/mcp
+        supergateway : --stdio <入口> --port <端口> --outputTransport streamable-http
+                       （supergateway 默认 outputTransport=sse，必须显式指定
+                       streamable-http；streamable-http 地址: http://localhost:<端口>/mcp。
+                       若启动日志显示端点路径不是 /mcp，可追加 --httpPath /mcp 调整，
+                       该参数与版本相关，报 unknown option 时去掉即可）
+
+        注意：--stdio 的值必须是不带外层引号的完整命令串（如 node D:\\...\\index.js）。
+        网关内部会按空格自行拆分并 spawn；若值本身带引号，引号会被当成可执行文件名
+        的一部分导致 spawn ENOENT。Python 的 subprocess 拼 Windows 命令行时会自动
+        给含空格的参数加引号，效果与 cmd 手动加引号一致。
+        """
+        key = gateway_key or current_gateway_key()
+        gateway_exe = get_gateway_bin(key)
+        if key == "supergateway":
+            return [
+                gateway_exe,
+                "--stdio", stdio_exec_path,
+                "--port", str(self.port),
+                "--outputTransport", "streamableHttp",
+            ]
+        # mcpgateway（默认网关）
         return [
             gateway_exe,
             "--stdio", stdio_exec_path,
@@ -795,14 +886,19 @@ class MCPServer:
             self.toggle_btn.disabled = True
             self.toggle_btn.update()
 
+        # 本次启动使用的网关：以左侧面板当前选择为准（模块级变量）
+        gw_key = current_gateway_key()
+        gw_display = GATEWAY_CONFIGS[gw_key]["display_name"]
+        log_callback(f"[{self.name}] 使用网关: {gw_display}")
+
         # ========== 链式串行安装流水线 ==========
         def pipeline_install():
             try:
-                log_callback(f"[{self.name}] 阶段1：检查并安装 mcpgateway")
+                log_callback(f"[{self.name}] 阶段1：检查并安装 {gw_display}")
                 progress_queue.put({"type": "begin", "rows": [
-                    {"id": "gateway", "title": f"[{self.name}] 正在安装网关 mcpgateway ..."},
+                    {"id": "gateway", "title": f"[{self.name}] 正在安装网关 {gw_display} ..."},
                 ]})
-                gw_ok = install_gateway(log_callback)
+                gw_ok = install_gateway(log_callback, gw_key)
                 if not gw_ok:
                     log_callback(f"[{self.name}] ❌ 网关安装失败，流程终止")
                     _hide_progress_after(PROGRESS_HIDE_DELAY)
@@ -828,7 +924,7 @@ class MCPServer:
 
                 log_callback(f"[{self.name}] ✅ 所有依赖准备就绪，自动启动服务...")
                 _progress_set("gateway", f"✅ {self.name} 依赖就绪，正在启动服务 ...", 0.95, "95%")
-                started = self._do_real_start(log_callback)
+                started = self._do_real_start(log_callback, gw_key)
                 if started:
                     _progress_set("gateway", f"✅ {self.name} 安装完成，服务已启动", 1.0, "100%")
                 else:
@@ -842,7 +938,7 @@ class MCPServer:
                 self._installing = False
                 self._do_update_ui()
 
-        gateway_bin = get_gateway_bin()
+        gateway_bin = get_gateway_bin(gw_key)
         mcp_cfg = self.get_raw_mcp_config()
         is_npx, pkg_name = extract_npx_package(mcp_cfg)
         need_install = False
@@ -863,9 +959,9 @@ class MCPServer:
             return False
         else:
             self._installing = False
-            return self._do_real_start(log_callback)
+            return self._do_real_start(log_callback, gw_key)
 
-    def _do_real_start(self, log_callback):
+    def _do_real_start(self, log_callback, gateway_key: Optional[str] = None):
         """真正执行启动逻辑"""
         mcp_cfg = self.get_raw_mcp_config()
         is_npx, pkg_name = extract_npx_package(mcp_cfg)
@@ -929,7 +1025,9 @@ class MCPServer:
             return False
 
         try:
-            launch_cmd = self.build_gateway_command(stdio_exec_path)
+            gw_key = gateway_key or current_gateway_key()
+            log_callback(f"[{self.name}] 网关: {GATEWAY_CONFIGS[gw_key]['display_name']}")
+            launch_cmd = self.build_gateway_command(stdio_exec_path, gateway_key)
             log_callback(f"[{self.name}] 网关启动命令: {' '.join(launch_cmd)}")
 
             creation_flags = 0
@@ -1007,7 +1105,9 @@ class MCPServer:
             for line in iter(pipe.readline, ''):
                 if line:
                     line_strip = line.rstrip()
-                    if "[mcpgateway]" in line_strip and "No pending request" in line_strip:
+                    # 过滤网关心跳类噪声日志（两个网关通用）
+                    if ("No pending request" in line_strip
+                            and any(g in line_strip for g in ("[mcpgateway]", "[supergateway]"))):
                         continue
                     log_callback(f"[{self.name}] {line_strip}")
         except Exception as e:
@@ -1117,14 +1217,31 @@ class MCPManagerApp:
         self._server_list_height = SERVER_LIST_INIT_HEIGHT
         self._splitter_dragging = False
 
-        page.title = "MCP管理器｜DeepSeek++ | Allen | 2.3 (mcpgateway)"
+        # 当前选中的网关（与左侧面板一致；模块级变量 CURRENT_GATEWAY 为唯一数据源）
+        self.current_gateway = current_gateway_key()
+        self._sidebar = None
+        self._gateway_buttons = {}
+        self._sidebar_current = None
+
+        # 名称列宽：随窗口宽度自适应（端口/状态/操作固定对齐，不贴最右）
+        self._name_col_width = self._calc_name_width()
+        self._header_name_text = None
+        self._maximize_btn = None   # 自定义标题栏"最大化/还原"按钮引用
+        self._window_maximized = False   # 本地跟踪最大化状态（读回属性不可靠）
+
+        page.title = "MCP管理器｜DeepSeek++ | Allen | 2.4 (双网关)"
         page.window.width = MAIN_WINDOW_WIDTH
         page.window.height = MAIN_WINDOW_HEIGHT
         page.window.min_width = MAIN_WINDOW_MIN_WIDTH
         page.window.min_height = MAIN_WINDOW_MIN_HEIGHT
         page.window.resizable = True
-        page.padding = 6
-        page.spacing = 6
+        # 隐藏系统原生白色标题栏，改用应用内自定义暗色标题栏
+        # （可拖动移动 + 最小化/最大化/关闭按钮，见 _build_title_bar）
+        page.window.title_bar_hidden = True
+        page.window.title_bar_buttons_hidden = True
+        page.on_resized = self._on_resized   # 窗口缩放时自动重排名称列宽
+        page.padding = 0                     # 页面零边距，标题栏贴顶全宽
+        page.spacing = 0
 
         # ---------- 深色主题 ----------
         page.theme_mode = ft.ThemeMode.DARK
@@ -1140,10 +1257,10 @@ class MCPManagerApp:
             color=COLOR_LOG_FG,
         )
         self._log_text.value = "\n".join([
-            "> mcpgateway 桥接模式｜2.3修复版 (Flet)",
-            "> 安装全程锁定启动按钮，整套流程结束才释放",
+            "> 双网关模式｜2.4 (Flet)",
+            "> 左侧面板切换 mcpgateway / supergateway",
+            "> 使用哪一个网关由左侧选择决定（变量）",
             "> 串行安装：网关优先 → MCP服务包 → 自动启动",
-            "> 拖动中间分隔条可调节服务器列表高度",
             "> 作者:Allen",
         ])
         self._stick_to_bottom = True  # 日志是否跟随自动滚底
@@ -1193,26 +1310,18 @@ class MCPManagerApp:
             threading.Thread(target=self._check_ports, daemon=True).start()
 
         self._log(f"[系统] Flet {ft.version.version} 启动 | 已加载 {len(self.servers)} 个服务器配置")
+        self._log(f"[系统] 当前网关: {GATEWAY_CONFIGS[self.current_gateway]['display_name']}（可在左侧面板切换）")
         self._log(f"[系统] 启动耗时 {time.time() - _START_TIME:.1f} 秒"
                   + ("（已启用快速图标加载）" if _FAST_ICONS_OK else "（图标加载未加速）"))
         self._log(f"[系统] 项目地址：https://github.com/2091k/ai-mcp-server")
 
     # ---------- 界面构建 ----------
     def _create_widgets(self):
-        # 顶部工具条
+        # 顶部工具条（清除日志按钮在左侧面板底部）
         toolbar = ft.Row([
             ft.Text("MCP 服务器", size=FONT_SIZE_TITLE,
                     weight=ft.FontWeight.BOLD, color=COLOR_TEXT),
             ft.Container(expand=True),
-            ft.OutlinedButton(
-                "清除日志", height=BTN_HEIGHT,
-                icon=ft.Icons.DELETE_SWEEP,
-                style=ft.ButtonStyle(
-                    padding=ft.padding.symmetric(horizontal=12),
-                    text_style=ft.TextStyle(size=FONT_SIZE_BUTTON, weight=ft.FontWeight.BOLD),
-                ),
-                on_click=self._clear_log,
-            ),
             ft.FilledButton(
                 "＋ 添加", height=BTN_HEIGHT,
                 bgcolor=COLOR_BTN_ADD, color=COLOR_BTN_TEXT,
@@ -1225,15 +1334,18 @@ class MCPManagerApp:
         ])
 
         # 服务器列表（固定高度、内部滚动；高度可拖动分隔条调节）
-        op_width = BTN_WIDTH * 3 + ROW_SPACING * 2
+        # 列对齐：名称列宽随窗口宽度自适应（有上限、不贴最右），
+        # 端口/状态/操作三列固定宽度紧挨对齐，与数据行保持一致
+        self._header_name_text = ft.Text("名称", width=self._name_col_width,
+                                         size=FONT_SIZE_HEADER,
+                                         weight=ft.FontWeight.BOLD, color=COLOR_TEXT_DIM)
         header = ft.Row([
-            ft.Text("名称", width=COL_NAME_WIDTH, size=FONT_SIZE_HEADER,
-                    weight=ft.FontWeight.BOLD, color=COLOR_TEXT_DIM),
+            self._header_name_text,
             ft.Text("端口", width=COL_PORT_WIDTH, size=FONT_SIZE_HEADER,
                     weight=ft.FontWeight.BOLD, color=COLOR_TEXT_DIM),
             ft.Text("状态", width=COL_STATUS_WIDTH, size=FONT_SIZE_HEADER,
                     weight=ft.FontWeight.BOLD, color=COLOR_TEXT_DIM),
-            ft.Text("操作", width=op_width, size=FONT_SIZE_HEADER,
+            ft.Text("操作", width=ACTIONS_COL_WIDTH, size=FONT_SIZE_HEADER,
                     weight=ft.FontWeight.BOLD, color=COLOR_TEXT_DIM),
         ], spacing=ROW_SPACING)
         self._server_list = ft.ListView(spacing=4, auto_scroll=False)
@@ -1283,7 +1395,242 @@ class MCPManagerApp:
             ], spacing=4),
         )
 
-        self.page.add(toolbar, self._server_panel, splitter, log_panel)
+        # 主布局：左侧网关切换面板 + 右侧内容（工具栏/服务器列表/分隔条/日志）
+        main_row = ft.Row([
+            self._build_sidebar(),
+            ft.Container(
+                content=ft.Column([
+                    toolbar,
+                    self._server_panel,
+                    splitter,
+                    log_panel,
+                ], spacing=6, expand=True),
+                expand=True,
+            ),
+        ], spacing=6, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH)
+
+        # 页面顶层：自定义暗色标题栏（贴顶全宽）+ 带 6px 边距的内容区
+        self.page.add(
+            self._build_title_bar(),
+            ft.Container(content=main_row, padding=6, expand=True),
+        )
+
+    # ---------- 自定义标题栏（隐藏系统标题栏后：可拖动 + 最小化/最大化/关闭） ----------
+    def _build_title_bar(self) -> ft.Container:
+        """构建自定义标题栏：与深色主题一致，可拖动移动，带窗口控制按钮"""
+        # 拖拽区：按住可移动窗口，双击最大化/还原
+        drag = ft.WindowDragArea(
+            content=ft.Row([
+                ft.Icon(ft.Icons.APPS, size=15, color=COLOR_TEXT_DIM),
+                ft.Text("MCP 管理器 ｜ 双网关 v2.4", size=12, color=COLOR_TEXT_DIM),
+            ], spacing=6),
+            maximizable=True,
+            expand=True,
+        )
+        # 窗口控制按钮：最小化 / 最大化(还原) / 关闭
+        self._maximize_btn = self._make_window_btn(
+            ft.Icons.CROP_SQUARE, "最大化/还原", self._on_maximize, hover="#2d333b",
+        )
+        title_row = ft.Row([
+            drag,
+            self._make_window_btn(ft.Icons.REMOVE, "最小化", self._on_minimize, hover="#2d333b"),
+            self._maximize_btn,
+            self._make_window_btn(ft.Icons.CLOSE, "关闭", self._on_close_btn,
+                                  hover="#a40e26", hover_icon="#ffffff"),
+        ], spacing=0)
+        return ft.Container(
+            content=title_row,
+            height=36,
+            bgcolor=COLOR_SIDEBAR_BG,
+            padding=ft.padding.symmetric(horizontal=6),
+            border=ft.border.only(bottom=ft.border.BorderSide(1, COLOR_PANEL_BORDER)),
+        )
+
+    def _make_window_btn(self, icon, tooltip, handler,
+                         hover="#2d333b", hover_icon=COLOR_TEXT):
+        """标题栏窗口按钮（固定大小，悬停变色）"""
+        return ft.IconButton(
+            icon=icon, icon_size=17, icon_color=COLOR_TEXT_DIM,
+            tooltip=tooltip,
+            width=42, height=34,
+            style=ft.ButtonStyle(
+                bgcolor={ft.ControlState.HOVERED: hover},
+                icon_color={ft.ControlState.HOVERED: hover_icon},
+                shape=ft.RoundedRectangleBorder(radius=4),
+            ),
+            on_click=handler,
+        )
+
+    def _on_minimize(self, e):
+        """最小化窗口：设置属性后必须 page.update() 才会下发到客户端"""
+        try:
+            self._log("[系统] 最小化窗口")
+            self.page.window.minimized = True
+            self.page.update()
+        except Exception as ex:
+            self._log(f"[系统] 最小化失败: {ex}")
+
+    def _on_maximize(self, e):
+        """最大化/还原窗口：用本地状态跟踪，避免读回属性不可靠"""
+        try:
+            self._window_maximized = not self._window_maximized
+            self.page.window.maximized = self._window_maximized
+            self._update_maximize_icon()
+            self.page.update()
+            self._log("[系统] " + ("最大化窗口" if self._window_maximized else "还原窗口"))
+        except Exception as ex:
+            self._log(f"[系统] 最大化失败: {ex}")
+
+    def _update_maximize_icon(self):
+        """按最大化状态切换图标（□ 最大化 / ⊞ 还原）"""
+        try:
+            if self._maximize_btn is not None:
+                self._maximize_btn.icon = (ft.Icons.FILTER_NONE
+                                           if self._window_maximized
+                                           else ft.Icons.CROP_SQUARE)
+                self._maximize_btn.update()
+        except Exception:
+            pass
+
+    def _on_close_btn(self, e):
+        """标题栏关闭按钮：走原有安全退出流程（有运行中服务先确认再停止）"""
+        self._safe_close(force=False)
+
+    # ---------- 左侧网关切换面板 ----------
+    def _build_sidebar(self) -> ft.Container:
+        """构建左侧网关切换面板（mcpgateway / supergateway）"""
+        title = ft.Text("网关选择", size=FONT_SIZE_TITLE,
+                        weight=ft.FontWeight.BOLD, color=COLOR_TEXT)
+        self._sidebar_current = ft.Text(
+            f"当前: {GATEWAY_CONFIGS[self.current_gateway]['display_name']}",
+            size=FONT_SIZE_GATEWAY_NAME, color=COLOR_TEXT_DIM,
+        )
+
+        btn_col = ft.Column(spacing=6)
+        self._gateway_buttons = {}
+        for key, cfg in GATEWAY_CONFIGS.items():
+            btn = self._make_gateway_button(key, cfg)
+            self._gateway_buttons[key] = btn
+            btn_col.controls.append(btn)
+
+        clear_btn = ft.IconButton(
+            icon=ft.Icons.DELETE_SWEEP, icon_color=COLOR_TEXT_DIM,
+            tooltip="清除日志", icon_size=22,
+            on_click=self._clear_log,
+        )
+        version_text = ft.Text("v2.4 by_Allen", size=10, color=COLOR_TEXT_DIM)
+
+        self._sidebar = ft.Container(
+            content=ft.Column([
+                title,
+                self._sidebar_current,
+                ft.Divider(height=1, color=COLOR_PANEL_BORDER),
+                btn_col,
+                ft.Container(expand=True),
+                ft.Divider(height=1, color=COLOR_PANEL_BORDER),
+                ft.Row([clear_btn, version_text],
+                       alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ], spacing=10, expand=True),
+            width=SIDEBAR_WIDTH,
+            bgcolor=COLOR_SIDEBAR_BG,
+            padding=ft.padding.all(12),
+            border=ft.border.only(right=ft.border.BorderSide(1, COLOR_PANEL_BORDER)),
+        )
+        return self._sidebar
+
+    def _make_gateway_button(self, key: str, cfg: dict) -> ft.Container:
+        """单个网关选项按钮（选中态绿色高亮）"""
+        is_active = (key == self.current_gateway)
+        return ft.Container(
+            content=ft.Column([
+                ft.Text(cfg["display_name"], size=FONT_SIZE_SIDEBAR,
+                        color=COLOR_TEXT if is_active else COLOR_TEXT_DIM,
+                        weight=ft.FontWeight.BOLD if is_active else ft.FontWeight.NORMAL),
+                ft.Text(cfg["description"], size=FONT_SIZE_GATEWAY_NAME - 1,
+                        color=COLOR_TEXT_DIM),
+            ], spacing=2),
+            padding=ft.padding.symmetric(vertical=10, horizontal=12),
+            border=ft.border.all(2, COLOR_SIDEBAR_ACTIVE) if is_active else None,
+            border_radius=ft.border_radius.all(8),
+            bgcolor=COLOR_SIDEBAR_ACTIVE if is_active else "transparent",
+            ink=True,
+            on_click=lambda e, gk=key: self._on_gateway_select(gk),
+        )
+
+    def _refresh_sidebar(self):
+        """切换网关后刷新左侧面板高亮与"当前"显示"""
+        if self._sidebar is None:
+            return
+        for key, cfg in GATEWAY_CONFIGS.items():
+            btn = self._gateway_buttons.get(key)
+            if btn is None:
+                continue
+            is_active = (key == self.current_gateway)
+            btn.bgcolor = COLOR_SIDEBAR_ACTIVE if is_active else "transparent"
+            btn.border = (ft.border.all(2, COLOR_SIDEBAR_ACTIVE) if is_active else None)
+            try:
+                name_text = btn.content.controls[0]
+                name_text.color = COLOR_TEXT if is_active else COLOR_TEXT_DIM
+                name_text.weight = (ft.FontWeight.BOLD if is_active
+                                    else ft.FontWeight.NORMAL)
+            except Exception:
+                pass
+        if self._sidebar_current is not None:
+            self._sidebar_current.value = (
+                f"当前: {GATEWAY_CONFIGS[self.current_gateway]['display_name']}")
+        try:
+            self._sidebar.update()
+        except Exception:
+            pass
+
+    def _on_gateway_select(self, key: str):
+        """切换网关：改写模块级变量，之后启动的服务器按新网关执行"""
+        if key == self.current_gateway or key not in GATEWAY_CONFIGS:
+            return
+        set_current_gateway(key)
+        self.current_gateway = current_gateway_key()
+        self._log(f"[系统] 已切换网关: {GATEWAY_CONFIGS[key]['display_name']}"
+                  "（后续启动将使用该网关，已运行的服务器不受影响）")
+        self._refresh_sidebar()
+
+    # ---------- 窗口宽度自适应（名称列宽随窗口缩放自动调整） ----------
+    def _calc_name_width(self, win_w: Optional[int] = None) -> int:
+        """根据窗口宽度计算"名称"列宽。
+
+        端口/状态/操作三列固定（FIXED_COLS_WIDTH），名称列占剩余宽度，
+        上限 NAME_COL_WIDTH（不贴最右）、下限 NAME_COL_MIN_WIDTH（省略号截断）。
+        """
+        try:
+            w = int(win_w or self.page.window.width or MAIN_WINDOW_WIDTH)
+        except Exception:
+            w = MAIN_WINDOW_WIDTH
+        # 扣除：页面边距(6*2) + 主布局间距(6) + 侧栏宽 + 列表面板内边距(8*2) + 边框(2)
+        list_w = w - (6 * 2 + 6 + SIDEBAR_WIDTH + 8 * 2 + 2)
+        return max(NAME_COL_MIN_WIDTH, min(NAME_COL_WIDTH, list_w - FIXED_COLS_WIDTH))
+
+    def _apply_responsive_widths(self, win_w: Optional[int] = None):
+        """把新的名称列宽应用到表头与所有数据行"""
+        new_w = self._calc_name_width(win_w)
+        if new_w == self._name_col_width:
+            return
+        self._name_col_width = new_w
+        try:
+            if self._header_name_text is not None:
+                self._header_name_text.width = new_w
+            for s in self.servers:
+                if s.name_text is not None:
+                    s.name_text.width = new_w
+            # 表头与列表都在 _server_panel 内，刷新整个面板即可
+            self._server_panel.update()
+        except Exception:
+            pass
+
+    def _on_resized(self, e):
+        """窗口缩放事件：重算名称列宽并刷新布局（端口/状态/操作始终对齐）"""
+        try:
+            self._apply_responsive_widths(getattr(e, "width", None))
+        except Exception:
+            pass
 
     # ---------- 分隔条拖动 ----------
     def _on_splitter_start(self, e):
@@ -1301,7 +1648,9 @@ class MCPManagerApp:
 
     # ---------- 服务器列表 ----------
     def _add_server_ui(self, server: MCPServer, update: bool = True):
-        name_text = ft.Text(server.name, width=COL_NAME_WIDTH, size=FONT_SIZE_LIST,
+        # 列对齐（与表头一致）：名称列宽随窗口宽度自适应（超长省略号），
+        # 端口/状态/操作三列固定宽度紧挨对齐，整体不贴最右
+        name_text = ft.Text(server.name, width=self._name_col_width, size=FONT_SIZE_LIST,
                             weight=ft.FontWeight.W_600, color=COLOR_TEXT,
                             overflow=ft.TextOverflow.ELLIPSIS, tooltip=server.name)
         port_text = ft.Text(str(server.port), width=COL_PORT_WIDTH,
@@ -1333,8 +1682,13 @@ class MCPManagerApp:
             on_click=lambda e: self._confirm_delete(server),
         )
 
+        # 操作组：三个按钮固定总宽（ACTIONS_COL_WIDTH），紧跟在"状态"列后对齐
+        actions_row = ft.Row(
+            [toggle_btn, edit_btn, del_btn],
+            spacing=BTN_GAP, alignment=ft.MainAxisAlignment.START,
+        )
         row = ft.Row([
-            name_text, port_text, status_text, toggle_btn, edit_btn, del_btn,
+            name_text, port_text, status_text, actions_row,
         ], spacing=ROW_SPACING)
 
         server.row = row
@@ -1753,6 +2107,19 @@ class MCPManagerApp:
         # 3. 真正销毁窗口
         try:
             self.page.window.destroy()
+        except Exception:
+            pass
+        # 4. 快速兜底：Flet 0.25 客户端处理 windowDestroy 有数秒延迟
+        #    （flet-dev/flet#325、#5180），1 秒后仍未退出则强制结束自身进程树
+        #    （此时所有服务器进程已停止，无残留端口风险）
+        try:
+            if sys.platform == "win32":
+                threading.Timer(1.0, lambda: subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(os.getpid())],
+                    capture_output=True, creationflags=_no_window_flags(),
+                )).start()
+            else:
+                threading.Timer(1.0, lambda: os._exit(0)).start()
         except Exception:
             pass
 
