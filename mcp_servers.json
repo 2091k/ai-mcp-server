@@ -112,5 +112,38 @@
       }
     },
     "manual_cmd": null
+  },
+  {
+    "name": "MT_MCP",
+    "port": 9999,
+    "config": {
+      "mcpServers": {
+        "demo-mcp": {
+          "command": "node",
+          "args": [
+            "D:\\bt\\x86\\deepseek++\\mcp\\MT_MCP\\proxy.js",
+            "192.168.41.123",
+            "8787"
+          ]
+        }
+      }
+    },
+    "manual_cmd": null
+  },
+  {
+    "name": "Reqable",
+    "port": 9999,
+    "config": {
+      "mcpServers": {
+        "reqable": {
+          "command": "D:\\软件\\小黄鸟抓包reqable-app-windows-x86_64\\mcp-server.exe",
+          "args": [
+            "--scope",
+            "minimal"
+          ]
+        }
+      }
+    },
+    "manual_cmd": null
   }
 ]
